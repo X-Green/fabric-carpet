@@ -15,6 +15,7 @@ blocks_movement
 bossbar
 brightness
 chunk_tickets
+convert_date
 crafting_remaining_item
 create_marker
 current_dimension
@@ -52,6 +53,8 @@ inventory_remove
 inventory_set
 inventory_size
 item_category
+item_list
+item_tags
 last_tick_times
 light
 liquid
@@ -123,6 +126,7 @@ ticks_randomly
 top
 transparent
 update
+unix_time
 view_distance
 volume
 without_updates

@@ -1757,7 +1757,8 @@ Here is the gist of the Minecraft related functions. Otherwise the CarpetScript 
 ## App structure
 
 The main delivery method for scarpet programs into the game is in the form of apps in `*.sc` files located in the world `scripts` 
-folder. In singleplayer, you can also save apps in `.minecraft/config/carpet/scripts` for them to be available in any world. 
+folder, flat. In singleplayer, you can also save apps in `.minecraft/config/carpet/scripts` for them to be available in any world,
+and here you can actually organize them in folders. 
 When loaded (via `/script load` command, etc.), the game will run the content of the app once, regardless of its scope
 (more about the app scopes below), without executing of any functions, unless called directly, and with the exception of the
 `__config()` function, if present, which will be executed once. Loading the app will also bind specific 
@@ -1788,10 +1789,9 @@ To access global/server state for a player app, which you shouldn't do, you need
 so either use a command block, or any 
 arbitrary entity: `/execute as @e[type=bat,limit=1] run script in <app> globals` for instance, however
 running anything in the global scope for a `'player'` scoped app is not intended.
-*   `'stay_loaded'`: defaults to `false`. If true, and `/carpet scriptsAutoload` is turned on, the following apps will 
+*   `'stay_loaded'`: defaults to `true`. If true, and `/carpet scriptsAutoload` is turned on, the following apps will 
 stay loaded after startup. Otherwise, after reading the app the first time, and fetching the config, server will drop them down. 
-This is to allow to store multiple apps on the server/world and selectively decide which one should be running at 
-startup. WARNING: all apps will run once at startup anyways, so be aware that their actions that are called 
+ WARNING: all apps will run once at startup anyways, so be aware that their actions that are called 
 statically, will be performed once anyways. Only apps present in the world's `scripts` folder will be autoloaded.
 *   `'legacy_command_type_support'` - if `true`, and the app defines the legacy command system via `__command()` function,
 all parameters of command functions will be interpreted and used using brigadier / vanilla style argument parser and their type
@@ -1802,9 +1802,20 @@ conflicts and ambiguities between different paths of execution. While ambiguous 
 and they tend to execute correctly, the suggestion support works really poorly in these situations and scarpet
 will warn and prevent such apps from loading with an error message. If `allow_command_conflicts` is specified and 
 `true`, then scarpet will load all provided commands regardless.
+*   `'command_permission'` - indicates a custom permission to run the command. It can either be a number indicating 
+permission level (from 1 to 4) or a string value, one of: `'all'` (default), `'ops'` (default opped player with permission level of 2),
+`'server'` - command accessible only through the server console and commandblocks, but not in chat, `'players'` - opposite
+of the former, allowing only use in player chat. It can also be a function (lambda function or function value, not function name)
+that takes 1 parameter, which represents the calling player, or `'null'` if the command represents a server call. 
+The function will prevent the command from running if it evaluates to `false`.
+Please note, that Minecraft evaluates eligible commands for players when they join, or on reload/restart, so if you use a 
+predicate that is volatile and might change, the command might falsely do or do not indicate that it is available to the player,
+however player will always be able to type it in and either succeed, or fail, based on their current permissions.
+Custom permission applies to legacy commands with `'legacy_command_type_support'` as well
+as for the custom commands defined with `'commands'`, see below.
 *   `'arguments'` - defines custom argument types for legacy commands with `'legacy_command_type_support'` as well
-as for the custom commands defined with `'commands'`, see below
-*   `'commands'` - defines custom commands for the app to be executed with `/<app>` command, see below
+as for the custom commands defined with `'commands'`, see below.
+*   `'commands'` - defines custom commands for the app to be executed with `/<app>` command, see below.
 
 ## Custom app commands
 
@@ -2234,6 +2245,16 @@ mine(x,y,z) ->
 Causes a block to be harvested by a specified player entity. Honors player item enchantments, as well as damages the 
 tool if applicable. If the entity is not a valid player, no block gets destroyed. If a player is not allowed to break 
 that block, a block doesn't get destroyed either.
+
+### `weather()`,`weather(type)`,`weather(type, ticks)`
+
+If called with no args, returns `'clear'`, `'rain` or `'thunder'` based on the current weather. If thundering, will
+always return `'thunder'`, if not will return `'rain'` or `'clear'` based on the current weather.
+
+With one arg, (either `'clear'`, `'rain` or `'thunder'`), returns the number of remaining ticks for that weather type.
+NB: It can thunder without there being a thunderstorm, there has to be both rain and thunder to form a storm.
+
+With two args, sets the weather to `type` for `ticks` ticks.
 
 ## Block and World querying
 
@@ -2805,14 +2826,16 @@ the future.
 
 These functions help scan larger areas of blocks without using generic loop functions, like nested `loop`.
 
-### `scan(center, range, lower_range?, expr)`
+### `scan(center, range, upper_range?, expr)`
 
 Evaluates expression over area of blocks defined by its center `center = (cx, cy, cz)`, expanded in all directions 
 by `range = (dx, dy, dz)` blocks, or optionally in negative with `range` coords, and `upper_range` coords in 
-positive values.
-`center` can be defined either as three coordinates, a list of three coords, or a block value.
-`range` and `lower_range` can have the same representations, just if its a block, it computes the distance to the center
+positive values, so you can use that if you know the lower coord, and dimension by calling `'scan(center, 0, 0, 0, w, h, d, ...)`.
+
+`center` can be defined either as three coordinates, a single tuple of three coords, or a block value.
+`range` and `upper_range` can have the same representations, just if they are block values, it computes the distance to the center
 as range instead of taking the values as is.
+
 `expr` receives `_x, _y, _z` as coords of current analyzed block and `_`, which represents the block itself.
 
 Returns number of successful evaluations of `expr` (with `true` boolean result) unless called in void context, 
@@ -2837,7 +2860,7 @@ Returns the list of 6 neighbouring blocks to the argument. Commonly used with ot
 for(neighbours(x,y,z),air(_)) => 4 // number of air blocks around a block
 </pre>
 
-### `rect(centre, range?, positive_range?)`
+### `rect(centre, range?, upper_range?)`
 
 Returns an iterator, just like `range` function that iterates over a rectangular area of blocks. If only center
 point is specified, it iterates over 27 blocks. If `range` arguments are specified, expands selection by the  respective 
@@ -2845,7 +2868,7 @@ number of blocks in each direction. If `positive_range` arguments are specified,
  it uses `range` for negative offset, and `positive_range` for positive.
 
 `centre` can be defined either as three coordinates, a list of three coords, or a block value.
-`range` and `positive_range` can have the same representations, just if its a block, it computes the distance to the center
+`range` and `positive_range` can have the same representations, just if they are block values, it computes the distance to the center
 as range instead of taking the values as is.`
 
 ### `diamond(centre_pos, radius?, height?)`
@@ -2907,7 +2930,9 @@ to the `regular` group.
 *  `monster`, `creature`, `ambient`, `water_creature`, `water_ambient`, `misc` - another categorization of 
 living entities based on their spawn group. Negative descriptor resolves to all living types that don't belong to that
 category.
-*  Any of the following standard entity types (equivalent to selection from `/summon` vanilla command: 
+* All entity tags including those provided with datapacks. Built-in entity tags include: `skeletons`, `raiders`, 
+`beehive_inhabitors` (bee, duh), `arrows` and `impact_projectiles`.
+* Any of the following standard entity types (equivalent to selection from `/summon` vanilla command: 
 `area_effect_cloud`, `armor_stand`, `arrow`, `bat`, `bee`, `blaze`, `boat`, `cat`, `cave_spider`, `chest_minecart`, 
 `chicken`, `cod`, `command_block_minecart`, `cow`, `creeper`, `dolphin`, `donkey`, `dragon_fireball`, `drowned`, 
 `egg`, `elder_guardian`, `end_crystal`, `ender_dragon`, `ender_pearl`, `enderman`, `endermite`, `evoker`, 
@@ -2929,10 +2954,13 @@ belonging to that group.
 
  
 Returns entities of a specified type in an area centered on `center` and at most `distance` blocks away from 
-the center point. Uses the same `type` selectors as `entities_list`.
+the center point/area. Uses the same `type` selectors as `entities_list`.
 
 `center` and `distance` can either be a triple of coordinates or three consecutive arguments for `entity_area`. `center` can 
-also be represented as a block, in this case the search box will be centered on the middle of the block.
+also be represented as a block, in this case the search box will be centered on the middle of the block, or an entity - in this case
+entire bounding box of the entity serves as a 'center' of search which is then expanded in all directions with the `'distance'` vector.
+
+In any case - returns all entities which bounding box collides with the bounding box defined by `'center'` and `'disteance'`.
 
 entity_area is simpler than `entity_selector` and runs about 20% faster, but is limited to predefined selectors and 
 cuboid search area.
@@ -3061,13 +3089,21 @@ List of entities riding the entity.
 
 Entity that `e` rides.
 
-### `query(e, 'tags')`
+###  `query(e, 'scoreboard_tags')`, `query(e, 'tags')`(deprecated)
 
-List of entity's tags.
+List of entity's scoreboard tags.
 
-### `query(e, 'has_tag',tag)`
+### `query(e, 'has_scoreboard_tag',tag)`, `query(e, 'has_tag',tag)`(deprecated)
 
-Boolean, true if the entity is marked with `tag`.
+Boolean, true if the entity is marked with a `tag` scoreboad tag.
+
+### `query(e, 'entity_tags')`
+
+List of entity tags assigned to the type this entity represents.
+
+### `query(e, 'has_entity_tag', tag)`
+
+Returns `true` if the entity matches that entity tag, `false` if it doesn't, and `null` if the tag is not valid. 
 
 ### `query(e, 'is_burning')`
 
@@ -3247,6 +3283,18 @@ Number indicating remaining entity health, or `null` if not applicable.
 ### `query(e, 'exhaustion')`
 
 Retrieves player hunger related information. For non-players, returns `null`.
+
+### `query(e, 'absorption')`
+
+Gets the absorption of the player (yellow hearts, e.g when having a golden apple.)
+
+### `query(e,'xp')`
+### `query(e,'xp_level')`
+### `query(e,'xp_progress')`
+### `query(e,'score')`
+
+Numbers related to player's xp. `xp` is the overall xp player has, `xp_level` is the levels seen in the hotbar,
+`xp_progress` is a float between 0 and 1 indicating the percentage of the xp bar filled, and `score` is the number displayed upon death 
 
 ### `query(e, 'air')`
 
@@ -3558,6 +3606,20 @@ Will set entity on fire for `ticks` ticks. Set to 0 to extinguish.
 
 Modifies directly player raw hunger components. Has no effect on non-players
 
+### `modify(e, 'absorption', value)`
+
+Sets the absorption value for the player. Each point is half a yellow heart.
+
+### `modify(e, 'add_xp', value)`
+### `modify(e, 'xp_level', value)`
+### `modify(e, 'xp_progress', value)`
+### `modify(e, 'xp_score', value)` 
+
+Manipulates player xp values - `'add_xp'` the method you probably want to use 
+to manipulate how much 'xp' an action should give. `'xp_score'` only affects the number you see when you die, and 
+`'xp_progress'` controls the xp progressbar above the hotbar, should take values from 0 to 1, but you can set it to any value, 
+maybe you will get a double, who knows.
+
 ### `modify(e, 'air', ticks)`
 
 Modifies entity air
@@ -3702,6 +3764,14 @@ use the same scheme.
 an inventory, all API functions typically do nothing and return null.
 
 Most items returned are in the form of a triple of item name, count, and nbt or the extra data associated with an item. 
+
+### item_list(tag?)
+
+With no arguments, returns a list of all items in the game. With an item tag provided, list items matching the tag, or `null` if tag is not valid.
+
+### item_tags(item, tag?)
+
+Returns list of tags the item belongs to, or, if tag is provided, `true` if an item maches the tag, `false` if it doesn't and `null` if that's not a valid tag
 
 ### `stack_limit(item)`
 
@@ -3898,6 +3968,13 @@ if it accepts required number of parameters.
 
 Global events will be handled once per app that is with `'global'` scope. With `player` scoped apps, each player instance
  is responsible independently from handling their events, so a global event may be executed multiple times for each player.
+
+### `__on_server_starts()`
+Event triggers after world is loaded and after all startup apps have started. It won't be triggered with `/reload`.
+
+### `__on_server_shuts_down()`
+Event triggers when the server started the shutdown process, before `__on_close()` is executed. Unlike `__on_close()`, it doesn't
+trigger with `/reload`.
 
 ### `__on_tick()`
 Event triggers at the beginning of each tick, located in the overworld. You can use `in_dimension()`
@@ -4548,9 +4625,10 @@ Other value types will only be converted to tags (including NBT tags) if `force`
 extra treatment when loading them back from NBT, but using `force` true will always produce output / never 
 produce an exception.
 
-### `print(expr)`
+### `print(expr)`, `print(player/player_list, expr)`
 
 Displays the result of the expression to the chat. Overrides default `scarpet` behaviour of sending everyting to stderr.
+Can optionally define player or list of players to send the message to.
 
 ### `format(components, ...)`, `format(l(components, ...))`
 
@@ -4841,7 +4919,9 @@ Available options in the scarpet app space:
   * `world_path` - full path to the world saves folder
   * `world_folder` - name of the direct folder in the saves that holds world files
   * `world_carpet_rules` - returns all Carpet rules in a map form (`rule`->`value`). Note that the values are always returned as strings, so you can't do boolean comparisons directly. Includes rules from extensions with their namespace (`namespace:rule`->`value`). You can later listen to rule changes with the `on_carpet_rule_changes(rule, newValue)` event.
- 
+  * `world_gamerules` - returns all gamerules in a map form (`rule`->`value`). Like carpet rules, values are returned as strings, so you can use appropriate value conversions using `bool()` or `number()` to convert them to other values. Gamerules are read-only to discourage app programmers to mess up with the settings intentionally applied by server admins. Isn't that just super annoying when a datapack messes up with your gamerule settings? It is still possible to change them though using `run('gamerule ...`.
+
+
  Relevant gameplay related properties
   * `game_difficulty` - current difficulty of the game: `'peacefu'`, `'easy'`, `'normal'`, or `'hard'`
   * `game_hardcore` - boolean whether the game is in hardcore mode
@@ -4859,6 +4939,7 @@ Available options in the scarpet app space:
  * `server_whitelist` - list of players allowed to log in
  * `server_banned_players` - list of banned player names
  * `server_banned_ips` - list of banned IP addresses
+ * `server_dev_environment` - boolean indicating whether this server is in a development environment.
  
  System related properties
  * `java_max_memory` - maximum allowed memory accessible by JVM
@@ -4871,7 +4952,8 @@ Available options in the scarpet app space:
  * `java_process_cpu_load` - current percentage of CPU used by JVM
  
  Scarpet related properties
- * `scarpet_version` - returns the version of the carpet your scarpet comes with.# `/script run` command
+ * `scarpet_version` - returns the version of the carpet your scarpet comes with.
+# `/script run` command
 
 Primary way to input commands. The command executes in the context, position, and dimension of the executing player, 
 commandblock, etc... The command receives 4 variables, `x`, `y`, `z` and `p` indicating position and 
